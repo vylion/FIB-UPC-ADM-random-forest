@@ -14,9 +14,9 @@ if __name__ == '__main__':
         os.mkdir("output")
 
     if not os.path.exists("output/tree_testing.txt"):
-        output = open("output/tree_testing.txt", 'w')
+        output = open("output/tree_testing.txt", 'w', encoding="utf-8")
     else:
-        output = open("output/tree_testing.txt", 'a')
+        output = open("output/tree_testing.txt", 'a', encoding="utf-8")
 
     dataset, fields = read_stars()
 
@@ -26,7 +26,6 @@ if __name__ == '__main__':
     t_start = timer()
 
     split = int(len(dataset) * 0.65)
-    split = 500
     training, testing = dataset[:split], dataset[split + 1:]
     log("Training set: {} entries.".format(len(training)), output)
     log("Testing set: {} entries.".format(len(testing)), output)
@@ -41,9 +40,22 @@ if __name__ == '__main__':
 
     log("\n-- TEST --\n", output)
 
+    failures = 0
+
     for entry in testing:
         label = entry.label
-        predict = tree.classify(entry)
-        log("Actual: {}\tPredicted: {}".format(label, predict), output)
+        predict = tree.predict(entry)
+        if predict not in label:
+            print("Actual: {}\tPredicted: {}".format(label, predict))
+            failures += 1
+
+    tested = len(testing)
+    success = tested - failures
+    s_rate = float(success)*100/float(tested)
+
+    log("\nSuccessfully predicted {} out of {} entries."
+        .format(success, tested), output)
+
+    log("Accuracy: {:.2f}%\nError: {:.2f}%".format(s_rate, 100-s_rate), output)
 
     output.close()

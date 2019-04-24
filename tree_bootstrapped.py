@@ -1,16 +1,15 @@
-import random
 import multiprocessing as mp
 from question import Question
 
 
-def unique_vals(dataset, column):
-    return set([entry.data[column] for entry in dataset])
+def unique_vals(dataset, indices, column):
+    return set([dataset[i].data[column] for i in indices])
 
 
-def count_labels(dataset):
+def count_labels(dataset, indices):
     counts = {}
-    for entry in dataset:
-        for label in entry.label:
+    for i in indices:
+        for label in dataset[i].label:
             if label not in counts:
                 counts[label] = 1
             else:
@@ -18,20 +17,20 @@ def count_labels(dataset):
     return counts
 
 
-def partition(dataset, question):
+def partition(dataset, indices, question):
     matching, non_matching = [], []
 
-    for entry in dataset:
-        if question.match(entry):
-            matching.append(entry)
+    for i in indices:
+        if question.match(dataset[i]):
+            matching.append(i)
         else:
-            non_matching.append(entry)
+            non_matching.append(i)
 
     return matching, non_matching
 
 
-def gini(dataset):
-    counts = count_labels(dataset)
+def gini(dataset, indices):
+    counts = count_labels(dataset, indices)
     impurity = 1
 
     for label in counts:
@@ -41,33 +40,33 @@ def gini(dataset):
     return impurity
 
 
-def info_gain(left_set, right_set, uncertainty):
-    p = float(len(left_set)) / float(len(left_set) + len(right_set))
+def info_gain(dataset, lid, rid, uncertainty):
+    p = float(len(lid)) / float(len(lid) + len(rid))
 
-    return uncertainty - p * gini(left_set) - (1-p) * gini(right_set)
+    return uncertainty - p * gini(dataset, lid) - (1-p) * gini(dataset, rid)
 
 
 def splitter(info):
-    question, dataset, uncertainty = info
-    matching, non_matching = partition(dataset, question)
+    question, dataset, indices, uncertainty = info
+    matching, non_matching = partition(dataset, indices, question)
     if not matching or not non_matching:
         return None
-    gain = info_gain(matching, non_matching, uncertainty)
+    gain = info_gain(dataset, matching, non_matching, uncertainty)
     return (gain, question, (matching, non_matching))
 
 
-def find_best_split(fields, dataset, uncertainty=None):
+def find_best_split(fields, dataset, indices, uncertainty=None):
     print("Splitting {} entries.".format(len(dataset)))
     best_gain, best_question, best_split = 0, None, None
 
     uncertainty = uncertainty or gini(dataset)
 
-    columns = len(dataset[0].data)
+    columns = len(fields)
 
     for i in range(columns):
-        values = unique_vals(dataset, i)
+        values = unique_vals(dataset, indices, i)
 
-        if len(dataset) > 400:
+        if len(indices) > 400:
             # Parallelize best split search
             cpus = mp.cpu_count()
             if i == 0:
@@ -76,7 +75,7 @@ def find_best_split(fields, dataset, uncertainty=None):
             splits = []
             for value in values:
                 question = Question(fields, i, value)
-                splits.append((question, dataset, uncertainty))
+                splits.append((question, dataset, indices, uncertainty))
 
             chunk = max(int(len(splits)/(cpus*4)), 1)
             with mp.Pool(cpus) as p:
@@ -91,12 +90,12 @@ def find_best_split(fields, dataset, uncertainty=None):
             for value in values:
                 question = Question(fields, i, value)
 
-                matching, non_matching = partition(dataset, question)
+                matching, non_matching = partition(dataset, indices, question)
 
                 if not matching or not non_matching:
                     continue
 
-                gain = info_gain(matching, non_matching, uncertainty)
+                gain = info_gain(dataset, matching, non_matching, uncertainty)
 
                 if gain > best_gain:
                     best_gain, best_question = gain, question
@@ -106,19 +105,22 @@ def find_best_split(fields, dataset, uncertainty=None):
 
 
 class Node(object):
-    def __init__(self, fields, dataset, level=0):
+    def __init__(self, fields, dataset, bootstrap, level=0):
         self.fields = fields
-        self.gini = gini(dataset)
-        self.build(dataset, level)
+        self.dataset = dataset
+        self.bootstrap = bootstrap
+        self.gini = gini(dataset, self.bootstrap)
+        self.build(level)
 
-    def build(self, dataset, level):
-        best_split = find_best_split(self.fields, dataset, self.gini)
+    def build(self, level):
+        best_split = find_best_split(self.fields, self.dataset,
+                                     self.bootstrap, self.gini)
         gain, question, branches = best_split
 
         if not branches:
             # Means we got 0 gain
             print("Found a leaf at level {}".format(level))
-            self.predictions = count_labels(dataset)
+            self.predictions = count_labels(self.dataset, self.bootstrap)
             self.is_leaf = True
             return
 
@@ -128,8 +130,8 @@ class Node(object):
         print(question)
         print("Matching: {} entries\tNon-matching: {} entries".format(len(left), len(right))) # noqa
 
-        self.left_branch = Node(self.fields, left, level + 1)
-        self.right_branch = Node(self.fields, right, level + 1)
+        self.left_branch = Node(self.fields, self.dataset, left, level + 1)
+        self.right_branch = Node(self.fields, self.dataset, right, level + 1)
         self.question = question
         self.is_leaf = False
         return
@@ -143,13 +145,6 @@ class Node(object):
         else:
             return self.right_branch.classify(entry)
 
-    def predict(self, entry):
-        predict = self.classify(entry).predictions
-        choices = []
-        for label, count in predict.items():
-            choices.extend([label]*count)
-        return random.choice(choices)
-
     def print(self, spacing=''):
         if self.is_leaf:
             s = spacing + "Predict: "
@@ -160,11 +155,12 @@ class Node(object):
                 probs[label] = "{:.2f}%".format(prob)
             return s + str(probs)
 
-        s = spacing + str(self.question) + '\n'
+        s = spacing + ("(Gini: {:.2f}) {}\n"
+                       .format(self.gini, str(self.question)))
         s += spacing + "├─ True:\n"
         s += self.left_branch.print(spacing + "│  ") + '\n'
         s += spacing + "└─ False:\n"
-        s += self.right_branch.print(spacing + "   ")
+        s += self.right_branch.print(spacing + "│  ")
 
         return s
 
@@ -173,16 +169,14 @@ class Node(object):
 
 
 class Tree(object):
-    def __init__(self, fields, dataset):
+    def __init__(self, fields, dataset, bootstrap):
         self.fields = fields
         self.dataset = dataset
-        self.root = Node(self.fields, self.dataset)
+        self.bootstrap = bootstrap
+        self.root = Node(self.fields, self.dataset, self.bootstrap)
 
     def classify(self, entry):
         return self.root.classify(entry)
-
-    def predict(self, entry):
-        return self.root.predict(entry)
 
     def __str__(self):
         return str(self.root)

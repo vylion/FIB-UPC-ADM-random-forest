@@ -15,6 +15,8 @@ def make_star(header, row, fields=None):
             num = float(value)
             if num == int(num):
                 num = int(num)
+            else:
+                num = round(num, 2)
             value = num
         except ValueError:
             if value == '':
@@ -31,10 +33,13 @@ def make_star(header, row, fields=None):
 
             type_list = value.split('/')
             types = []
-            for sp_type in type_list:
-                if sp_type and sp_type[0] in STAR_CLASSES:
-                    types.append(sp_type[0])
+            for star_type in type_list:
+                for sp_type in STAR_CLASSES:
+                    if star_type and sp_type in star_type.upper():
+                        types.append(sp_type)
             value = ''.join(set(types))
+            if value == '':
+                return None
 
         data[field] = value
 
