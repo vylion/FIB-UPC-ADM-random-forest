@@ -26,11 +26,11 @@ class Forest(object):
 
         oob = set(oob)
 
-        votes = {}
         successes = 0
 
         for i in oob:
             entry = self.dataset[i]
+            votes = {}
 
             for tree in self.trees:
                 if i not in tree.indices:
@@ -40,9 +40,10 @@ class Forest(object):
                             votes[key] = predict[key]
                         else:
                             votes[key] += predict[key]
-                    majority = max(votes.items(), key=operator.itemgetter(1))[0]
-                    if majority in entry.label:
-                        successes += 1
+
+            majority = max(votes.items(), key=operator.itemgetter(1))[0]
+            if majority in entry.label:
+                successes += 1
 
         return 1-(float(successes)/float(len(oob)))
 

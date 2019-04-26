@@ -2,7 +2,7 @@ import os
 import random
 from timeit import default_timer as timer
 from star_reader import read_stars
-# from tree_bootstrapped import Tree
+from tree_bootstrapped import Tree
 from forest import Forest
 
 
@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
     random.shuffle(dataset)
 
-    cutoff = 0.4
+    cutoff = 0.25
     forest_size = 10
 
     split = int(len(dataset) * cutoff)
@@ -36,7 +36,6 @@ if __name__ == '__main__':
 
     log("\n----------\n", output)
 
-    """
     log("\n-- TREE TRAINING --\n", output)
 
     log("Training Tree...", output)
@@ -66,7 +65,6 @@ if __name__ == '__main__':
     log("\nTested {} entries.".format(tested), output)
 
     log("Accuracy: {:.2f}%\nError: {:.2f}%".format(s_rate, 100-s_rate), output)
-    """
 
     log("\n-- FOREST TRAINING --\n", output)
 
@@ -78,6 +76,9 @@ if __name__ == '__main__':
     log("Testing set: {} entries.".format(len(testing)), output)
 
     forest = Forest(fields, training, forest_size)
+
+    t_end = timer()
+    log("Training complete.\nElapsed time: {:.3f}\n".format(t_end - t_start), output)
 
     log("\n-- FOREST TEST --\n", output)
 
@@ -99,6 +100,6 @@ if __name__ == '__main__':
 
     error = forest.error_oob()
 
-    log("\nAverage error Out-of-Bag: {:.2f}%".format(error*100), output)
+    log("\nError Out-of-Bag: {:.2f}%".format(error*100), output)
 
     output.close()
