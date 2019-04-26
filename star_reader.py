@@ -32,11 +32,14 @@ def make_star(header, row, fields=None):
                 return None
 
             type_list = value.split('/')
-            types = []
-            for star_type in type_list:
-                for sp_type in STAR_CLASSES:
-                    if star_type and sp_type in star_type.upper():
-                        types.append(sp_type)
+
+            # now, for each star_type in typelist
+            # and each sp_type in STAR_CLASSES
+            # add sp_type to the list if
+            # sp_type in star_type.upper()
+
+            # Basically, look if the star class letters appear in each possible star type, and add them, ignoring empty star types
+            types = [sp_type if star_type and sp_type in star_type.upper() else '' for star_type in type_list for sp_type in STAR_CLASSES]
             value = ''.join(set(types))
             if value == '':
                 return None
@@ -69,7 +72,7 @@ def read_stars(fields=KEPT_DATA):
 
     t_end = timer()
 
-    print("Parsed {} stars.\nElapsed time: {:.3f}\n".format(len(star_list), t_end-t_start)) # noqa
+    print("Parsed {} stars.\nElapsed time: {:.3f}\n".format(len(star_list), t_end-t_start))
 
     return star_list, fields or header
 

@@ -23,4 +23,4 @@ class Question(object):
         condition = self.numeric and ">" or "="
         field = self.fields[self.pos]
 
-        return "Is {f} {cond} {val}?".format(f=field, cond=condition, val=self.value) # noqa
+        return "Is {f} {cond} {val}?".format(f=field, cond=condition, val=self.value)

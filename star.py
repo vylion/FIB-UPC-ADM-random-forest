@@ -12,5 +12,6 @@ class Star(object):
             classification = ' or '.join(self.label)
         else:
             classification = self.label
-        return ("Star {} {} of spectral type {}"
-                .format(self.name, self.data, classification))
+
+        s = "Star {} {} of spectral type {}"
+        return s.format(self.name, self.data, classification)

@@ -1,7 +1,10 @@
 import os
 from timeit import default_timer as timer
 from star_reader import read_stars
-from tree import Tree
+from tree_bootstrapped import Tree
+
+
+OUTPUT_FOLDER = "output/tree"
 
 
 def log(s, open_file):
@@ -10,13 +13,14 @@ def log(s, open_file):
 
 
 if __name__ == '__main__':
-    if not os.path.exists("output"):
-        os.mkdir("output")
+    if not os.path.exists(OUTPUT_FOLDER):
+        os.mkdir(OUTPUT_FOLDER)
 
-    if not os.path.exists("output/tree_testing.txt"):
-        output = open("output/tree_testing.txt", 'w', encoding="utf-8")
+    if not os.path.exists(OUTPUT_FOLDER + "/testing.txt"):
+        output = open(OUTPUT_FOLDER + "/testing.txt", 'w',
+                      encoding="utf-8")
     else:
-        output = open("output/tree_testing.txt", 'a', encoding="utf-8")
+        output = open(OUTPUT_FOLDER + "/testing.txt", 'a', encoding="utf-8")
 
     dataset, fields = read_stars()
 
@@ -25,36 +29,34 @@ if __name__ == '__main__':
     log("Training Tree...", output)
     t_start = timer()
 
-    split = int(len(dataset) * 0.65)
+    cut = 0.02
+
+    split = int(len(dataset) * cut)
     training, testing = dataset[:split], dataset[split + 1:]
+    log("Dataset split: Training with {}% of the set".format(cut*100), output)
     log("Training set: {} entries.".format(len(training)), output)
     log("Testing set: {} entries.".format(len(testing)), output)
 
-    tree = Tree(fields, training)
+    tree = Tree(fields, training, [i for i in range(len(training))])
 
     t_end = timer()
-    timestamp = "Training complete.\nElapsed time: {:.3f}\n"
-    log(timestamp.format(t_end - t_start), output)
+    log("Training complete.\nElapsed time: {:.3f}\n".format(t_end - t_start), output)
 
     log(tree, output)
 
     log("\n-- TEST --\n", output)
 
-    failures = 0
+    total_success = 0
 
     for entry in testing:
-        label = entry.label
-        predict = tree.predict(entry)
-        if predict not in label:
-            print("Actual: {}\tPredicted: {}".format(label, predict))
-            failures += 1
+        success, predict = tree.predict(entry)
+        print("Actual: {}\tPredicted: {}.\tSuccess: {}".format(entry.label, predict, success))
+        total_success += success
 
     tested = len(testing)
-    success = tested - failures
-    s_rate = float(success)*100/float(tested)
+    s_rate = float(total_success)*100/float(tested)
 
-    log("\nSuccessfully predicted {} out of {} entries."
-        .format(success, tested), output)
+    log("\nTested {} entries.".format(tested), output)
 
     log("Accuracy: {:.2f}%\nError: {:.2f}%".format(s_rate, 100-s_rate), output)
 

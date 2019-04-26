@@ -1,4 +1,3 @@
-import random
 import multiprocessing as mp
 from question import Question
 
@@ -71,8 +70,7 @@ def find_best_split(fields, dataset, uncertainty=None):
             # Parallelize best split search
             cpus = mp.cpu_count()
             if i == 0:
-                print("-- Using {} CPUs to parallelize the split search."
-                      .format(cpus))
+                print("-- Using {} CPUs to parallelize the split search.".format(cpus))
             splits = []
             for value in values:
                 question = Question(fields, i, value)
@@ -80,13 +78,11 @@ def find_best_split(fields, dataset, uncertainty=None):
 
             chunk = max(int(len(splits)/(cpus*4)), 1)
             with mp.Pool(cpus) as p:
-                for split in p.imap_unordered(splitter, splits,
-                                              chunksize=chunk):
+                for split in p.imap_unordered(splitter, splits, chunksize=chunk):
                     if split is not None:
                         gain, question, branches = split
                         if gain > best_gain:
-                            best_gain, best_question, best_split = \
-                                gain, question, branches
+                            best_gain, best_question, best_split = gain, question, branches
         else:
             for value in values:
                 question = Question(fields, i, value)
@@ -126,7 +122,7 @@ class Node(object):
 
         print("Found a level {} split:".format(level))
         print(question)
-        print("Matching: {} entries\tNon-matching: {} entries".format(len(left), len(right))) # noqa
+        print("Matching: {} entries\tNon-matching: {} entries".format(len(left), len(right)))
 
         self.left_branch = Node(self.fields, left, level + 1)
         self.right_branch = Node(self.fields, right, level + 1)
@@ -144,11 +140,18 @@ class Node(object):
             return self.right_branch.classify(entry)
 
     def predict(self, entry):
-        predict = self.classify(entry).predictions
-        choices = []
-        for label, count in predict.items():
-            choices.extend([label]*count)
-        return random.choice(choices)
+        successes = []
+        predict = self.classify(entry).predictions.copy()
+
+        for label in entry.label:
+            total = float(sum(predict.values()))
+            for key, value in predict.items():
+                predict[key] = float(predict[key]) / total
+            if label in predict:
+                success = float(predict[label]) / total
+                successes.append(success)
+
+        return sum(successes), predict
 
     def print(self, spacing=''):
         if self.is_leaf:
@@ -160,7 +163,7 @@ class Node(object):
                 probs[label] = "{:.2f}%".format(prob)
             return s + str(probs)
 
-        s = spacing + str(self.question) + '\n'
+        s = spacing + "(Gini: {:.2f}) ".format(self.gini) + str(self.question) + '\n'
         s += spacing + "├─ True:\n"
         s += self.left_branch.print(spacing + "│  ") + '\n'
         s += spacing + "└─ False:\n"

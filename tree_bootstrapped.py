@@ -34,7 +34,7 @@ def gini(dataset, indices):
     impurity = 1
 
     for label in counts:
-        prob = counts[label] / float(len(dataset))
+        prob = counts[label] / float(len(indices))
         impurity -= prob**2
 
     return impurity
@@ -55,86 +55,88 @@ def splitter(info):
     return (gain, question, (matching, non_matching))
 
 
-def find_best_split(fields, dataset, indices, uncertainty=None):
-    print("Splitting {} entries.".format(len(dataset)))
-    best_gain, best_question, best_split = 0, None, None
-
-    uncertainty = uncertainty or gini(dataset)
-
-    columns = len(fields)
-
-    for i in range(columns):
-        values = unique_vals(dataset, indices, i)
-
-        if len(indices) > 400:
-            # Parallelize best split search
-            cpus = mp.cpu_count()
-            if i == 0:
-                print("-- Using {} CPUs to parallelize the split search."
-                      .format(cpus))
-            splits = []
-            for value in values:
-                question = Question(fields, i, value)
-                splits.append((question, dataset, indices, uncertainty))
-
-            chunk = max(int(len(splits)/(cpus*4)), 1)
-            with mp.Pool(cpus) as p:
-                for split in p.imap_unordered(splitter, splits,
-                                              chunksize=chunk):
-                    if split is not None:
-                        gain, question, branches = split
-                        if gain > best_gain:
-                            best_gain, best_question, best_split = \
-                                gain, question, branches
-        else:
-            for value in values:
-                question = Question(fields, i, value)
-
-                matching, non_matching = partition(dataset, indices, question)
-
-                if not matching or not non_matching:
-                    continue
-
-                gain = info_gain(dataset, matching, non_matching, uncertainty)
-
-                if gain > best_gain:
-                    best_gain, best_question = gain, question
-                    best_split = (matching, non_matching)
-
-    return best_gain, best_question, best_split
-
-
 class Node(object):
-    def __init__(self, fields, dataset, bootstrap, level=0):
+    def __init__(self, fields, dataset, bootstrap, level=0, out=True):
         self.fields = fields
         self.dataset = dataset
-        self.bootstrap = bootstrap
-        self.gini = gini(dataset, self.bootstrap)
-        self.build(level)
+        self.indices = bootstrap
+        self.out = out
+        self.gini = gini(dataset, self.indices)
+        self.build(level, out)
 
-    def build(self, level):
-        best_split = find_best_split(self.fields, self.dataset,
-                                     self.bootstrap, self.gini)
+    def build(self, level, out=True):
+        best_split = self.split(out)
         gain, question, branches = best_split
 
         if not branches:
             # Means we got 0 gain
-            print("Found a leaf at level {}".format(level))
-            self.predictions = count_labels(self.dataset, self.bootstrap)
+            if out:
+                print("Found a leaf at level {}".format(level))
+            self.predictions = count_labels(self.dataset, self.indices)
             self.is_leaf = True
             return
 
         left, right = branches
 
-        print("Found a level {} split:".format(level))
-        print(question)
-        print("Matching: {} entries\tNon-matching: {} entries".format(len(left), len(right))) # noqa
+        if out:
+            print("Found a level {} split:".format(level))
+            print(question)
+            print("Matching: {} entries\tNon-matching: {} entries".format(len(left), len(right)))
 
-        self.left_branch = Node(self.fields, self.dataset, left, level + 1)
-        self.right_branch = Node(self.fields, self.dataset, right, level + 1)
+        self.left_branch = Node(self.fields, self.dataset, left, level + 1, out)
+        self.right_branch = Node(self.fields, self.dataset, right, level + 1, out)
         self.question = question
         self.is_leaf = False
         return
+
+    def split(self, out=True):
+        if out:
+            print("Splitting {} entries.".format(len(self.indices)))
+        best_gain, best_question, best_split = 0, None, None
+
+        uncertainty = self.gini or gini(self.dataset, self.indices)
+
+        cpus = mp.cpu_count()
+        columns = len(self.fields)
+
+        parallelize = len(self.indices) > 1000
+
+        if parallelize and out:
+            print("\n-- Using {} CPUs to parallelize the split search\n".format(cpus))
+
+        for i in range(columns):
+            values = unique_vals(self.dataset, self.indices, i)
+
+            if parallelize:
+                # Parallelize best split search
+                splits = []
+                for value in values:
+                    question = Question(self.fields, i, value)
+                    splits.append((question, self.dataset, self.indices, uncertainty))
+
+                chunk = max(int(len(splits)/(cpus*4)), 1)
+                with mp.Pool(cpus) as p:
+                    for split in p.imap_unordered(splitter, splits, chunksize=chunk):
+                        if split is not None:
+                            gain, question, branches = split
+                            if gain > best_gain:
+                                best_gain, best_question, best_split = gain, question, branches
+            else:
+                for value in values:
+                    question = Question(self.fields, i, value)
+
+                    matching, non_matching = partition(self.dataset, self.indices, question)
+
+                    if not matching or not non_matching:
+                        continue
+
+                    gain = info_gain(self.dataset, matching, non_matching, uncertainty)
+
+                    if gain > best_gain:
+                        best_gain, best_question = gain, question
+                        best_split = (matching, non_matching)
+
+        return best_gain, best_question, best_split
 
     def classify(self, entry):
         if self.is_leaf:
@@ -144,6 +146,20 @@ class Node(object):
             return self.left_branch.classify(entry)
         else:
             return self.right_branch.classify(entry)
+
+    def predict(self, entry):
+        successes = []
+        predict = self.classify(entry).predictions.copy()
+        total = float(sum(predict.values()))
+        for key, value in predict.items():
+            predict[key] = float(predict[key]) / total
+
+        for label in entry.label:
+            if label in predict:
+                success = predict[label]
+                successes.append(success)
+
+        return sum(successes), predict
 
     def print(self, spacing=''):
         if self.is_leaf:
@@ -160,7 +176,7 @@ class Node(object):
         s += spacing + "├─ True:\n"
         s += self.left_branch.print(spacing + "│  ") + '\n'
         s += spacing + "└─ False:\n"
-        s += self.right_branch.print(spacing + "│  ")
+        s += self.right_branch.print(spacing + "   ")
 
         return s
 
@@ -169,14 +185,20 @@ class Node(object):
 
 
 class Tree(object):
-    def __init__(self, fields, dataset, bootstrap):
+    def __init__(self, fields, dataset, bootstrap, out=True):
         self.fields = fields
         self.dataset = dataset
-        self.bootstrap = bootstrap
-        self.root = Node(self.fields, self.dataset, self.bootstrap)
+        self.indices = bootstrap
+        # Out of bag
+        self.oob = [i for i in range(len(dataset)) if i not in bootstrap]
+
+        self.root = Node(self.fields, self.dataset, self.indices, out=out)
 
     def classify(self, entry):
         return self.root.classify(entry)
+
+    def predict(self, entry):
+        return self.root.predict(entry)
 
     def __str__(self):
         return str(self.root)
